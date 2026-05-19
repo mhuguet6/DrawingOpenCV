@@ -1,0 +1,26 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <title>Air Drawing Recognizer</title>
+    <!--
+      Preload OpenCV.js. The browser starts downloading it the moment the
+      page parses, in parallel with React mounting and the worker spawning.
+      By the time the worker calls importScripts(), the file is already in
+      HTTP cache and the load is essentially free — only the WASM compile
+      time inside the worker remains.
+    -->
+    <link
+      rel="preload"
+      as="script"
+      crossorigin="anonymous"
+      href="https://docs.opencv.org/4.10.0/opencv.js"
+    />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
