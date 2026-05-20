@@ -65,19 +65,19 @@ function loadCv() {
       }
     }
     self.postMessage({ kind: 'cv-source', url });
+    // Poll until OpenCV's own onRuntimeInitialized has finished registering
+    // cv.Mat. We deliberately do NOT touch cv.onRuntimeInitialized (OpenCV
+    // sets its own; overwriting it silently breaks Mat registration), and
+    // we deliberately do NOT `return self.cv` — the cv module exposes a
+    // `then` method, which makes async functions await it as a thenable and
+    // hang forever. Callers reach cv via the worker-global `self.cv`.
     await new Promise((resolve) => {
-      const tryResolve = () => {
-        if (self.cv && self.cv.Mat) {
-          resolve();
-        } else if (self.cv) {
-          self.cv.onRuntimeInitialized = () => resolve();
-        } else {
-          setTimeout(tryResolve, 30);
-        }
+      const check = () => {
+        if (self.cv && self.cv.Mat) resolve();
+        else setTimeout(check, 30);
       };
-      tryResolve();
+      check();
     });
-    return self.cv;
   })();
   return cvReadyPromise;
 }
@@ -91,8 +91,8 @@ self.addEventListener('message', async (e) => {
       return;
     }
     if (type === 'classify-shape') {
-      const cv = await loadCv();
-      const result = classifyShape(cv, payload);
+      await loadCv();
+      const result = classifyShape(self.cv, payload);
       self.postMessage({ id, result });
       return;
     }

@@ -52,6 +52,22 @@ This uses Docker to run emscripten — see the script header for details.
 Output goes to `public/opencv-min.js` + `public/opencv_js.wasm` (both
 gitignored).
 
+**Quick alternative without Docker**: download the official single-file
+build into `public/opencv-min.js`:
+```
+curl -fL --progress-bar -o public/opencv-min.js \
+  https://docs.opencv.org/4.10.0/opencv.js
+```
+This is ~10 MB instead of ~2 MB and the WASM compile is slower (~15-25 s
+vs ~1 s), but it eliminates the slow network round-trip to
+docs.opencv.org and works without Docker. The worker auto-detects it
+because of the content-type check in `isLocalBuildAvailable()`. Do NOT
+attempt to manually split this file's embedded base64 WASM into a
+separate `.wasm` file to get streaming compile — multiple internal code
+paths in emscripten's runtime depend on the inline data URL in
+non-obvious ways, and patching it has broken initialization every time
+it's been tried. Either accept the ~25 s cost or run the Docker build.
+
 ### Build dependencies (2)
 
 | Package | Version | Role |
@@ -397,11 +413,13 @@ No tests, no linter, no formatter. Build is ~1 second.
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
-| Stage overlay stuck on "Compiling OpenCV.js…" | CDN blocked / offline / firewall | Try a different network. OpenCV.js URL is `OPENCV_URL` in `src/cv/openCv.js`. |
+| "Loading OpenCV…" counter climbs forever and never clears | `await loadCv()` is awaiting OpenCV's `cv` module as a thenable (it has a `then` method) and never resumes. Or the worker overwrites `cv.onRuntimeInitialized`, breaking OpenCV's own `cv.Mat` registration. | See `cvWorker.js`: the polling promise must NOT `return self.cv`, and we must NOT register a callback on `cv.onRuntimeInitialized`. Poll `self.cv.Mat` instead. |
+| Stage overlay stuck "Compiling OpenCV…" but counter does tick | Slow download from `docs.opencv.org` (it's not a real CDN) or slow WASM compile. | Run `curl -fL -o public/opencv-min.js https://docs.opencv.org/4.10.0/opencv.js` to self-host (eliminates network), or run `./scripts/build-opencv.sh` to get the minimal build (eliminates network AND compile). |
 | Webcam tab shows "Camera error" | Browser denied permission, or no camera | Re-grant permission; browsers only expose `getUserMedia` on `https://` or `localhost`. |
-| "Cannot read properties of undefined (reading 'Mat')" | Code ran before `getCv()` resolved | All cv-using functions must `await getCv()` first (`shapeClassifier.js` already does). |
+| "Cannot read properties of undefined (reading 'Mat')" | Code ran before `ensureCv()` resolved | All cv-using main-thread code must `await ensureCv()` first (`shapeClassifier.js` and `App.runClassification` already do). |
 | Classification returns null | Stroke too small (< 50 px²) — see `shapeClassifier.js` early-return | Draw a bigger shape. |
 | Predictions never update | `onStrokeEnd` not firing | Check that pinch is releasing (thumb and index fingers move > 7% apart). |
+| Worker fetches `/opencv_js.wasm` but gets ~1.5 KB of HTML back (status 200) | Vite SPA fallback returning `index.html` for an unknown route. The file isn't in `public/`, or emscripten's `locateFile` prepended `scriptDirectory` and pointed at `/src/cv/opencv_js.wasm`. | Use the single-file `opencv-min.js` (WASM embedded as base64). Do not try to split it into a separate `.wasm` file — multiple emscripten code paths depend on the inline data URL. |
 
 ---
 
@@ -424,6 +442,17 @@ No tests, no linter, no formatter. Build is ~1 second.
   from the CDN, which only works in classic workers.
 - **Don't move OpenCV back to the main thread.** The whole reason it's in
   a worker is to keep the page responsive during the ~8 MB WASM compile.
+- **OpenCV's `cv` module is a thenable** — it exposes a `then` method.
+  This means: never `return cv` (or any `Promise.resolve(cv)`) from an
+  async function. Doing so makes JS await the module as if it were a
+  Promise, and `cv.then` doesn't resolve in a way that unblocks awaiters,
+  so the calling function hangs forever. The worker reaches `cv` via
+  `self.cv` directly; the load function returns nothing.
+- **Don't register a handler on `cv.onRuntimeInitialized`.** OpenCV.js
+  sets that callback internally to register `cv.Mat` and the other
+  classes after WASM instantiates. Overwriting it (or even chaining
+  naively) can prevent that setup from running. Poll `self.cv.Mat`
+  instead — it's race-free and doesn't depend on internals.
 - **Don't introduce a UI library.** No Tailwind, no shadcn, no MUI. The
   hand-rolled CSS with custom properties is the design system.
 - **Don't introduce a state library.** Plain React state + refs.

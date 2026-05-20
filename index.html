@@ -6,18 +6,14 @@
     <meta name="color-scheme" content="dark light" />
     <title>Air Drawing Recognizer</title>
     <!--
-      Preload OpenCV.js. The browser starts downloading it the moment the
-      page parses, in parallel with React mounting and the worker spawning.
-      By the time the worker calls importScripts(), the file is already in
-      HTTP cache and the load is essentially free — only the WASM compile
-      time inside the worker remains.
+      Preload the local OpenCV build so the browser starts downloading it
+      while React mounts and the worker spawns. By the time the worker
+      calls importScripts(), the JS glue and the separate WASM blob are
+      already in cache — only the WASM compile time inside the worker
+      remains. If the local build isn't present, the worker falls back to
+      the CDN; these preloads will be ignored harmlessly in that case.
     -->
-    <link
-      rel="preload"
-      as="script"
-      crossorigin="anonymous"
-      href="https://docs.opencv.org/4.10.0/opencv.js"
-    />
+    <link rel="preload" as="script" href="/opencv-min.js" />
   </head>
   <body>
     <div id="root"></div>
